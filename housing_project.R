@@ -1,0 +1,132 @@
+#load packages
+pacman::p_load(tidyverse, ggplot2, data.table, broom, parallel, here, zoo)
+
+#load data
+train_dt = read.csv('train.csv')
+test_dt = read.csv('test.csv')
+
+#pick out necessary variables from training dataset
+#create age variable (year sold - year built)
+house_df = train_dt %>% transmute(
+  id = Id,
+  sale_price = log(SalePrice),
+  age = YrSold - YearBuilt,
+  remod = YrSold - YearRemodAdd,
+  area = GrLivArea,
+  lot_area = LotArea,
+  cond = OverallCond,
+  veneer = MasVnrArea,
+  bsmt_sf = TotalBsmtSF,
+  bath = FullBath,
+  bed_abv = BedroomAbvGr,
+  kit_abv = KitchenAbvGr,
+  rms_abv = TotRmsAbvGrd,
+  fire = Fireplaces,
+  grg_age = YrSold - GarageYrBlt,
+  wd_dck = WoodDeckSF,
+  cl_prch = EnclosedPorch,
+  pool = PoolArea
+)
+
+
+#create function to remove NA values from all columns
+rep_NA_func = function(data) {
+  for (col in names(data)) {
+    data[[col]] = na.aggregate(data[[col]])
+  }
+  return(data)  
+}
+#new clean DF
+house_clean_df = rep_NA_func(house_df)
+
+#first OLS 
+simple_lm = lm(sale_price ~ age + remod + area + lot_area + cond + veneer + bsmt_sf
+               + bath + bed_abv + kit_abv + rms_abv + fire + grg_age + wd_dck +
+                 cl_prch + pool,
+               data = house_df)
+#second OLS
+clean_lm = lm(sale_price ~ age + remod + area + lot_area + cond + veneer + bsmt_sf
+               + bath + bed_abv + kit_abv + rms_abv + fire + grg_age + wd_dck +
+                 cl_prch + pool,
+               data = house_clean_df)
+
+#output model summary
+summary(simple_lm)
+summary(clean_lm)
+
+#finding RMSE for simple model
+simple_predictions = predict(simple_lm)
+
+simple_residuals = simple_predictions - house_df$sale_price
+
+simple_mse = mean(simple_residuals^2)
+
+simple_rmse = sqrt(simple_mse)
+
+print(simple_rmse)
+
+#finding RMSE for clean model
+clean_predictions = predict(clean_lm)
+
+clean_residuals = clean_predictions - house_clean_df$sale_price
+
+clean_mse = mean(clean_residuals^2)
+
+clean_rmse = sqrt(clean_mse)
+
+print(clean_rmse)
+
+#RMSE for clean model is clearly better --> will use that for my prediction basis
+
+#first clean up test data for prediction 
+#create age variable (year sold - year built)
+predict_df = test_dt %>% transmute(
+  id = Id,
+  age = YrSold - YearBuilt,
+  remod = YrSold - YearRemodAdd,
+  area = GrLivArea,
+  lot_area = LotArea,
+  cond = OverallCond,
+  veneer = MasVnrArea,
+  bsmt_sf = TotalBsmtSF,
+  bath = FullBath,
+  bed_abv = BedroomAbvGr,
+  kit_abv = KitchenAbvGr,
+  rms_abv = TotRmsAbvGrd,
+  fire = Fireplaces,
+  grg_age = YrSold - GarageYrBlt,
+  wd_dck = WoodDeckSF,
+  cl_prch = EnclosedPorch,
+  pool = PoolArea
+)
+
+#replace all NA values
+test_clean_df = rep_NA_func(predict_df)
+
+# Predicting sale price in log scale
+pred_log = predict(object = clean_lm, newdata = test_clean_df)
+
+# Convert predicted sale prices from log scale to original scale
+pred_original = exp(pred_log)
+
+# View the predictions
+print(pred_original)
+
+#create submission datatset
+submit_df = data.frame(
+  Id = test_dt$Id,
+  SalePrice = pred_original
+)
+
+#view first few lines of dataset
+head(submit_df)
+
+#save dataset as CSV
+write_csv(x = submit_df, file = 'spm_submit_01.csv')
+
+
+
+
+
+
+
